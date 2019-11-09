@@ -5,3 +5,6 @@ Save models to pickles - toxic.py
 Save info from xml(Text, Score, Tags) dump to dict(json):
  - save_year_posts.py
  - save_year_comments.py
+ 
+ Evaluate toxicity:
+  - evaluate_texts.py
