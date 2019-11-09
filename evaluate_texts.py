@@ -1,41 +1,64 @@
+import json
 import os
-import pandas as pd
 import pickle
-import re, string
-
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-text = ['fuck you, nigger', 'i think you should use sklearn instead', 'it is bullshit']
-
-re_tok = re.compile(f'([{string.punctuation}“”¨«»®´·º½¾¿¡§£₤‘’])')
+import re
+import string
 
 
-def tokenize(s): return re_tok.sub(r' \1 ', s).split()
+def tokenize(s):
+    re_tok = re.compile('([{}“”¨«»®´·º½¾¿¡§£₤‘’])'.format(string.punctuation))
+    return re_tok.sub(r' \1 ', s).split()
 
 
-#with open('models/vocabulary.pkl', 'rb') as vocab:
-#    trn_term_doc = pickle.load(vocab)
+def load_models():
+    models = {}
+    for file in os.listdir('models'):
+        with open(os.path.join('models', file), 'rb') as m, \
+                open(os.path.join('ratio', file.replace('model', 'r')), 'rb') as r:
+            models[file] = {'model': pickle.load(m), 'ratio': pickle.load(r)}
+    return models
 
-train = pd.read_csv('train.csv')
 
-label_cols = ['toxic', 'severe_toxic', 'obscene', 'threat', 'insult', 'identity_hate']
-train['none'] = 1 - train[label_cols].max(axis=1)
+def evaluate_toxicity(body, vec):
 
-COMMENT = 'comment_text'
-train[COMMENT].fillna("unknown", inplace=True)
+    text = vec.transform([body])
+    pred_sum = 0
+    for one_model in models:
+        model = models[one_model]['model']
+        ratio = models[one_model]['ratio']
+        predict = model.predict_proba(text.multiply(ratio))[:, 1]
+        pred_sum += float(predict[0])
+    return pred_sum
 
-vec = TfidfVectorizer(ngram_range=(1, 2), tokenizer=tokenize,
-                      min_df=3, max_df=0.9, strip_accents='unicode', use_idf=1,
-                      smooth_idf=1, sublinear_tf=1)
-trn_term_doc = vec.fit_transform(train[COMMENT])
 
-text = vec.transform(text)
+def evaluate_posts():
+    file_dir = os.listdir('comments2018')
+    num = 1
+    index = 1
+    with open('data/vectoriser.pkl', 'rb') as vec:
+        vec = pickle.load(vec)
+    so_results = []
+    for file in file_dir:
+        with open(os.path.join('comments2018', file), 'r') as f:
+            so_dict = json.load(f)
+            for post in so_dict:
+                post['Toxicity'] = evaluate_toxicity(post['Body'], vec)
+                if post['Toxicity'] > 0.5:
+                    so_results.append(post)
+                    num += 1
+                if num % 1000 == 0:
+                    with open('results/so_results_com_2018_{}.json'.format(index), 'w') as f:
+                        json.dump(so_results, f)
+                        so_results = []
+                        print('file {}'.format(index))
+                        index += 1
 
-for file in os.listdir('models'):
-    with open(os.path.join('models', file), 'rb') as m, \
-            open(os.path.join('r', file.replace('model', 'r')), 'rb') as r:
-        model = pickle.load(m)
-        r = pickle.load(r)
-        predict = model.predict_proba(text.multiply(r))[:, 1]
-        print(file.replace('_model.pkl', ''))
-        print(predict[0])
+    with open('results/so_results_com_2018_{}.json'.format(index+1), 'w') as f:
+        json.dump(so_results, f)
+
+
+if __name__ == "__main__":
+    print('start')
+    models = load_models()
+    print('load models')
+    evaluate_posts()
